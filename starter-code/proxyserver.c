@@ -104,14 +104,17 @@ void serve_request(int client_fd) {
     free(buffer);
 }
 
+// argument to start_listener
+typedef struct {
+    int *server_fd;
+    int listener_port;
+} listener_details;
 
-int server_fd;
-/*
- * opens a TCP stream socket on all interfaces with port number PORTNO. Saves
- * the fd number of the server socket in *socket_number. For each accepted
- * connection, calls request_handler with the accepted fd number.
- */
-void serve_forever(int *server_fd) {
+// starts a listener thread
+void start_listener(listener_details *d) {
+    // get args from struct
+    int *server_fd = d->server_fd;
+    int listener_port = d->listener_port;
 
     // create a socket to listen
     *server_fd = socket(PF_INET, SOCK_STREAM, 0);
@@ -128,14 +131,12 @@ void serve_forever(int *server_fd) {
         exit(errno);
     }
 
-
-    int proxy_port = listener_ports[0];
     // create the full address of this proxyserver
     struct sockaddr_in proxy_address;
     memset(&proxy_address, 0, sizeof(proxy_address));
     proxy_address.sin_family = AF_INET;
     proxy_address.sin_addr.s_addr = INADDR_ANY;
-    proxy_address.sin_port = htons(proxy_port); // listening port
+    proxy_address.sin_port = htons(listener_port); // listening port
 
     // bind the socket to the address and port number specified in
     if (bind(*server_fd, (struct sockaddr *)&proxy_address,
@@ -150,7 +151,7 @@ void serve_forever(int *server_fd) {
         exit(errno);
     }
 
-    printf("Listening on port %d...\n", proxy_port);
+    printf("Listening on port %d...\n", listener_port);
 
     struct sockaddr_in client_address;
     size_t client_address_length = sizeof(client_address);
@@ -173,6 +174,34 @@ void serve_forever(int *server_fd) {
         // close the connection to the client
         shutdown(client_fd, SHUT_WR);
         close(client_fd);
+    }
+}
+
+int server_fd;
+/*
+ * opens a TCP stream socket on all interfaces with port number PORTNO. Saves
+ * the fd number of the server socket in *socket_number. For each accepted
+ * connection, calls request_handler with the accepted fd number.
+ */
+void serve_forever(int *server_fd) {
+    // make threads
+    pthread_t *threads = (pthread_t *)malloc(num_listener * sizeof(pthread_t));
+    if (!threads) {
+        printf("Failed to allocate memory\n");
+        exit(1);
+    }
+
+    // start threads
+    for (int i = 0; i < num_listener; i++) {
+        listener_details *d = malloc(sizeof(listener_details));
+        d->listener_port = listener_ports[i];
+        d->server_fd = server_fd;
+        pthread_create(&threads[i], NULL, (void*)start_listener, d);
+    }
+
+    // join threads
+    for (int i = 0; i < num_listener; i++) {
+        pthread_join(threads[i], NULL);
     }
 
     shutdown(*server_fd, SHUT_RDWR);
