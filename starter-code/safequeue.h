@@ -6,7 +6,7 @@ struct q_item {
 };
 
 void create_queue(int max_queue_size);
-void add_work(int fd, int p, char *path, int delay);
+int add_work(int fd, int p, char *path, int delay);
 int get_highest_priority();
 struct q_item *get_work();
 struct q_item *get_work_nonblocking();

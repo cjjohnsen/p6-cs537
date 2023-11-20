@@ -187,13 +187,17 @@ void start_listener(listener_details *d) {
             int p;
 
             if (sscanf(req->path, "/%d/", &p) != 1) {
-                printf("Could not extract priority in path %s", req->path);
+                send_error_response(client_fd, BAD_REQUEST, "Could not extract priority");
                 shutdown(client_fd, SHUT_WR);
                 close(client_fd);
             }
 
             // add work and wake up worker
-            add_work(client_fd, p, req->path, req->delay);
+            if (add_work(client_fd, p, req->path, req->delay) < 0) {
+                send_error_response(client_fd, QUEUE_FULL, "Queue is full");
+                shutdown(client_fd, SHUT_WR);
+                close(client_fd);
+            }
         }
     }
 }
@@ -201,16 +205,14 @@ void start_listener(listener_details *d) {
 void start_worker() {
     while(1) {
         struct q_item *work = get_work();
-        printf("Serving\n");
+
+        sleep(work->delay);
+
         serve_request(work->client_fd);
 
-        printf("Done serving\n");
         // close the connection to the client
         shutdown(work->client_fd, SHUT_WR);
         close(work->client_fd);
-
-        printf("Sleeping\n");
-        sleep(work->delay);
     }
 }
 

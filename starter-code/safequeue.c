@@ -7,18 +7,16 @@ struct q_item **pq;
 int size = 0;
 int max_size;
 pthread_mutex_t queue_mutex;
-pthread_cond_t queue_listener_cond;
 pthread_cond_t queue_worker_cond;
 
 void create_queue(int max_queue_size) {
     max_size = max_queue_size;
     pq = malloc(max_queue_size * sizeof(struct q_item*));
     pthread_mutex_init(&queue_mutex, NULL);
-    pthread_cond_init(&queue_listener_cond, NULL);
     pthread_cond_init(&queue_worker_cond, NULL);
 }
 
-void add_work(int fd, int p, char *path, int delay) {
+int add_work(int fd, int p, char *path, int delay) {
     struct q_item *new_item = malloc(sizeof(struct q_item));
 
     new_item->client_fd = fd;
@@ -28,16 +26,17 @@ void add_work(int fd, int p, char *path, int delay) {
 
     pthread_mutex_lock(&queue_mutex);
 
-    while (size >= max_size) {
-        // Wait until there is space in the queue
-        pthread_cond_wait(&queue_listener_cond, &queue_mutex);
+    if (size >= max_size) {
+        return -1;
     }
 
     pq[size] = new_item;
     size++;
 
-    pthread_cond_broadcast(&queue_worker_cond); // Signal that new work is added
+    pthread_cond_signal(&queue_worker_cond); // Signal that new work is added
     pthread_mutex_unlock(&queue_mutex);
+
+    return 0;
 }
 
 int get_highest_priority() {
@@ -70,7 +69,6 @@ struct q_item *get_work() {
 
     size--;
 
-    pthread_cond_broadcast(&queue_listener_cond); // Signal that work has been removed
     pthread_mutex_unlock(&queue_mutex);
 
     return item;
@@ -104,5 +102,4 @@ void destroy_queue() {
     free(pq);
     pthread_mutex_destroy(&queue_mutex);
     pthread_cond_destroy(&queue_worker_cond);
-    pthread_cond_destroy(&queue_listener_cond);
 }

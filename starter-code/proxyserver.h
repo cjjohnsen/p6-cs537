@@ -223,6 +223,8 @@ struct parsed_http_request *parse_client_request(int fd) {
         token = strtok(NULL, "\r\n");
     }
 
+    if (delay < 0) delay = 0;
+
     struct parsed_http_request *req = malloc(sizeof(struct parsed_http_request));
     req->path = path;
     req->delay = delay;
