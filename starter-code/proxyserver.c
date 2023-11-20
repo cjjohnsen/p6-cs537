@@ -214,13 +214,14 @@ void start_worker() {
     }
 }
 
-int server_fd;
+int *server_fds;
+
 /*
  * opens a TCP stream socket on all interfaces with port number PORTNO. Saves
  * the fd number of the server socket in *socket_number. For each accepted
  * connection, calls request_handler with the accepted fd number.
  */
-void serve_forever(int *server_fd) {
+void serve_forever(int *server_fds) {
     // make threads
     pthread_t *listeners = (pthread_t *)malloc(num_listener * sizeof(pthread_t));
     if (!listeners) {
@@ -238,7 +239,7 @@ void serve_forever(int *server_fd) {
     for (int i = 0; i < num_listener; i++) {
         listener_details *d = malloc(sizeof(listener_details));
         d->listener_port = listener_ports[i];
-        d->server_fd = server_fd;
+        d->server_fd = &server_fds[i];
         pthread_create(&listeners[i], 0, (void*)start_listener, d);
     }
 
@@ -255,8 +256,10 @@ void serve_forever(int *server_fd) {
         pthread_join(workers[i], NULL);
     }
 
-    shutdown(*server_fd, SHUT_RDWR);
-    close(*server_fd);
+    for (int i = 0; i < num_listener; i++) {
+        shutdown(server_fds[i], SHUT_RDWR);
+        close(server_fds[i]);
+    }
 }
 
 /*
@@ -290,7 +293,7 @@ void print_settings() {
 void signal_callback_handler(int signum) {
     printf("Caught signal %d: %s\n", signum, strsignal(signum));
     for (int i = 0; i < num_listener; i++) {
-        if (close(server_fd) < 0) perror("Failed to close server_fd (ignoring)\n");
+        if (close(server_fds[i]) < 0) perror("Failed to close server_fd (ignoring)\n");
     }
     free(listener_ports);
     exit(0);
@@ -336,7 +339,8 @@ int main(int argc, char **argv) {
 
     create_queue(max_queue_size);
 
-    serve_forever(&server_fd);
+    server_fds = malloc(sizeof(int) * num_listener);
+    serve_forever(server_fds);
 
     return EXIT_SUCCESS;
 }
