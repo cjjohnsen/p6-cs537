@@ -1,10 +1,6 @@
 #include <pthread.h>
 #include <stdlib.h>
-
-struct q_item {
-    int client_fd;
-    int priority;
-};
+#include "safequeue.h"
 
 struct q_item *pq;
 int size = 0;
