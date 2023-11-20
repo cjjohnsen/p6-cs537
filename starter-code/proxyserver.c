@@ -213,6 +213,8 @@ void start_worker() {
         // close the connection to the client
         shutdown(work->client_fd, SHUT_WR);
         close(work->client_fd);
+
+        free(work);
     }
 }
 
@@ -262,6 +264,9 @@ void serve_forever(int *server_fds) {
         shutdown(server_fds[i], SHUT_RDWR);
         close(server_fds[i]);
     }
+
+    free(listeners);
+    free(workers);
 }
 
 /*
@@ -298,6 +303,7 @@ void signal_callback_handler(int signum) {
         if (close(server_fds[i]) < 0) perror("Failed to close server_fd (ignoring)\n");
     }
     free(listener_ports);
+    destroy_queue();
     exit(0);
 }
 
@@ -343,6 +349,8 @@ int main(int argc, char **argv) {
 
     server_fds = malloc(sizeof(int) * num_listener);
     serve_forever(server_fds);
+
+    free(server_fds);
 
     return EXIT_SUCCESS;
 }

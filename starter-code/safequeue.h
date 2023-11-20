@@ -10,3 +10,4 @@ int add_work(int fd, int p, char *path, int delay);
 int get_highest_priority();
 struct q_item *get_work();
 struct q_item *get_work_nonblocking();
+void destroy_queue();

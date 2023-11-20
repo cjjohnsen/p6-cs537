@@ -99,7 +99,17 @@ struct q_item *get_work_nonblocking() {
 
 // Remember to free resources and destroy mutex and condition variable
 void destroy_queue() {
+    pthread_mutex_lock(&queue_mutex);
+
+    for (int i = 0; i < size; i++) {
+        free(pq[i]->path);
+        free(pq[i]);
+    }
+
     free(pq);
+    size = 0;
+
+    pthread_mutex_unlock(&queue_mutex);
     pthread_mutex_destroy(&queue_mutex);
     pthread_cond_destroy(&queue_worker_cond);
 }
