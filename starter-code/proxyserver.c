@@ -15,12 +15,7 @@
 #include <unistd.h>
 
 #include "proxyserver.h"
-
-
-/*
- * Constants
- */
-#define RESPONSE_BUFSIZE 10000
+#include "safequeue.h"
 
 /*
  * Global configuration variables.
@@ -73,12 +68,11 @@ void serve_request(int client_fd) {
         return;
     }
 
-    // successfully connected to the file server
-    char *buffer = (char *)malloc(RESPONSE_BUFSIZE * sizeof(char));
+    char *buffer = (char*)malloc(RESPONSE_BUFSIZE * sizeof(char));
 
-    // forward the client request to the fileserver
     int bytes_read = read(client_fd, buffer, RESPONSE_BUFSIZE);
     int ret = http_send_data(fileserver_fd, buffer, bytes_read);
+
     if (ret < 0) {
         printf("Failed to send request to the file server\n");
         send_error_response(client_fd, BAD_GATEWAY, "Bad Gateway");
@@ -169,11 +163,54 @@ void start_listener(listener_details *d) {
                inet_ntoa(client_address.sin_addr),
                client_address.sin_port);
 
-        serve_request(client_fd);
+        // get the priortity of request
+        struct parsed_http_request *req = parse_client_request(client_fd);
 
+        if (strcmp(req->path, "/GetJob") == 0) {
+            struct q_item *item = get_work_nonblocking();
+
+            if (!item) {
+                send_error_response(client_fd, QUEUE_EMPTY, "Queue is empty");
+            } else {
+                char *buf = malloc(strlen(item->path) + 2);
+                sprintf(buf, "%s\n", item->path);
+
+                http_start_response(client_fd, OK);
+                http_send_header(client_fd, "Content-Type", "text/html");
+                http_end_headers(client_fd);
+                http_send_string(client_fd, buf);
+            }
+
+            shutdown(client_fd, SHUT_WR);
+            close(client_fd);
+        } else {
+            int p;
+
+            if (sscanf(req->path, "/%d/", &p) != 1) {
+                printf("Could not extract priority in path %s", req->path);
+                shutdown(client_fd, SHUT_WR);
+                close(client_fd);
+            }
+
+            // add work and wake up worker
+            add_work(client_fd, p, req->path, req->delay);
+        }
+    }
+}
+
+void start_worker() {
+    while(1) {
+        struct q_item *work = get_work();
+        printf("Serving\n");
+        serve_request(work->client_fd);
+
+        printf("Done serving\n");
         // close the connection to the client
-        shutdown(client_fd, SHUT_WR);
-        close(client_fd);
+        shutdown(work->client_fd, SHUT_WR);
+        close(work->client_fd);
+
+        printf("Sleeping\n");
+        sleep(work->delay);
     }
 }
 
@@ -185,8 +222,14 @@ int server_fd;
  */
 void serve_forever(int *server_fd) {
     // make threads
-    pthread_t *threads = (pthread_t *)malloc(num_listener * sizeof(pthread_t));
-    if (!threads) {
+    pthread_t *listeners = (pthread_t *)malloc(num_listener * sizeof(pthread_t));
+    if (!listeners) {
+        printf("Failed to allocate memory\n");
+        exit(1);
+    }
+
+    pthread_t *workers = (pthread_t *)malloc(num_workers * sizeof(pthread_t));
+    if (!workers) {
         printf("Failed to allocate memory\n");
         exit(1);
     }
@@ -196,12 +239,20 @@ void serve_forever(int *server_fd) {
         listener_details *d = malloc(sizeof(listener_details));
         d->listener_port = listener_ports[i];
         d->server_fd = server_fd;
-        pthread_create(&threads[i], NULL, (void*)start_listener, d);
+        pthread_create(&listeners[i], 0, (void*)start_listener, d);
+    }
+
+    for (int i = 0; i < num_workers; i++) {
+        pthread_create(&workers[i], 0, (void*)start_worker, NULL);
     }
 
     // join threads
     for (int i = 0; i < num_listener; i++) {
-        pthread_join(threads[i], NULL);
+        pthread_join(listeners[i], NULL);
+    }
+
+    for (int i = 0; i < num_workers; i++) {
+        pthread_join(workers[i], NULL);
     }
 
     shutdown(*server_fd, SHUT_RDWR);
@@ -282,6 +333,8 @@ int main(int argc, char **argv) {
         }
     }
     print_settings();
+
+    create_queue(max_queue_size);
 
     serve_forever(&server_fd);
 
